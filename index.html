@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muse Lab</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --line:#262b35; --text:#e7e9ee; --dim:#8b93a3;
+    --accent:#7cc4a4; --warn:#e3b55b; --bad:#e0706b;
+    --c0:#7aa7e8; --c1:#7cc4a4; --c2:#d9a35f; --c3:#c58bd6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:760px;margin:0 auto;padding:14px 14px 40px}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  h1{font-size:20px;margin:0;font-weight:650;letter-spacing:.2px;flex:1 0 100%;white-space:nowrap}
+  button{font:inherit;border:1px solid var(--line);background:#222733;color:var(--text);
+    padding:9px 14px;border-radius:10px;cursor:pointer}
+  button.primary{background:var(--accent);color:#0d1512;border-color:transparent;font-weight:650}
+  button:disabled{opacity:.45}
+  .pill{font-size:12.5px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:3px 10px;white-space:nowrap}
+  .pill b{color:var(--text);font-weight:600}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+  section h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:0 0 8px;font-weight:600}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .notice{background:#2a2414;border:1px solid #4a3d1d;color:#f0dcae;border-radius:12px;padding:10px 12px;margin-bottom:12px;display:none}
+  .notice.show{display:block}
+  canvas{display:block;width:100%}
+  #eeg{height:260px}
+  .quality{display:flex;gap:8px;flex-wrap:wrap}
+  .q{display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid var(--line);border-radius:99px;padding:3px 10px 3px 6px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#444}
+  .bands{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:end;height:150px}
+  .band{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .bar{width:100%;max-width:56px;border-radius:8px 8px 3px 3px;background:var(--accent);height:2%;transition:height .25s}
+  .band .lbl{font-size:12px;color:var(--dim);margin-top:5px;text-align:center}
+  .band .val{font-size:12px;margin-bottom:3px;font-variant-numeric:tabular-nums}
+  .meter{display:flex;align-items:center;gap:12px}
+  .meter .big{font-size:34px;font-weight:650;font-variant-numeric:tabular-nums;min-width:86px}
+  .track{flex:1;height:12px;border-radius:99px;background:#222733;overflow:hidden}
+  .fill{height:100%;width:0;background:linear-gradient(90deg,#4f8fbf,var(--accent));transition:width .3s}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:560px){.grid2{grid-template-columns:1fr}}
+  #tilt{height:120px}
+  label{font-size:13px;color:var(--dim)}
+  select{font:inherit;background:#222733;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  details summary{cursor:pointer;color:var(--dim);font-size:13px}
+  #log{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#b9c0cc;white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:8px}
+  .muted{color:var(--dim);font-size:13px}
+  .stat{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Muse Lab</h1>
+    <span class="pill">Protocol <b id="proto">—</b></span>
+    <span class="pill">Battery <b id="batt">—</b></span>
+    <span class="pill">Rate <b id="rate">—</b></span>
+  </header>
+
+  <div id="notice" class="notice"></div>
+
+  <section>
+    <div class="row">
+      <button id="connect" class="primary">Connect headband</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <label>Preset
+        <select id="preset">
+          <option value="p1041" selected>p1041 (EEG + optics)</option>
+          <option value="p1035">p1035 (EEG4, lighter)</option>
+          <option value="p1045">p1045</option>
+          <option value="p1034">p1034</option>
+        </select>
+      </label>
+      <label>Mains
+        <select id="mains">
+          <option value="60" selected>60 Hz</option>
+          <option value="50">50 Hz</option>
+        </select>
+      </label>
+    </div>
+    <p class="muted" style="margin:8px 0 0">Close the official Muse app first: the headband talks to one device at a time.</p>
+  </section>
+
+  <section>
+    <h2>Sensor contact</h2>
+    <div class="quality" id="quality"></div>
+  </section>
+
+  <section>
+    <h2>EEG · last 5 s <span style="text-transform:none">(±75 µV, 1 Hz high-pass + mains notch)</span></h2>
+    <canvas id="eeg"></canvas>
+  </section>
+
+  <section>
+    <h2>Relaxed focus (relative alpha)</h2>
+    <div class="meter">
+      <div class="big" id="alphaBig">—</div>
+      <div class="track"><div class="fill" id="alphaFill"></div></div>
+    </div>
+    <p class="muted" style="margin:8px 0 0">Try closing your eyes for 10 seconds: alpha should rise clearly. That's the quickest proof the signal is real.</p>
+  </section>
+
+  <section>
+    <h2>Brainwave bands (relative power, average of good channels)</h2>
+    <div class="bands" id="bands"></div>
+  </section>
+
+  <div class="grid2">
+    <section>
+      <h2>Head motion</h2>
+      <canvas id="tilt"></canvas>
+    </section>
+    <section>
+      <h2>Packets</h2>
+      <div class="stat muted" id="stats">No data yet.</div>
+    </section>
+  </div>
+
+  <section>
+    <details>
+      <summary>Protocol log</summary>
+      <div id="log"></div>
+    </details>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* ============================================================
+   Muse Lab: Web Bluetooth client for Muse headbands.
+   Athena (Muse S Gen 3) protocol: multiplexed packets on 273e0013/0014.
+   Classic (Muse 2 / Muse S Gen 2) fallback: one characteristic per sensor.
+   Protocol details from muse-lsl (athena.py), OpenMuse and muse-rs.
+   ============================================================ */
+
+const SERVICE = 0xfe8d;
+const U = n => `273e00${n}-4c4d-454d-96be-f03bac821358`;
+const CH = {
+  control: U("01"),
+  athena1: U("13"), athena2: U("14"),
+  tp9: U("03"), af7: U("04"), af8: U("05"), tp10: U("06"),
+  gyro: U("09"), acc: U("0a"), telemetry: U("0b"),
+};
+const EEG_NAMES = ["TP9", "AF7", "AF8", "TP10"];
+const COLORS = ["--c0", "--c1", "--c2", "--c3"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const FS = 256;
+
+/* ---------- Athena packet decoding ---------- */
+// tag -> [type, channels, samples, dataLen, variableLength]
+const ATHENA = {
+  0x11: ["eeg", 4, 4, 28, false],
+  0x12: ["eeg", 8, 2, 28, false],
+  0x34: ["optics", 4, 3, 30, false],
+  0x35: ["optics", 8, 2, 40, false],
+  0x36: ["optics", 16, 1, 40, false],
+  0x47: ["imu", 6, 3, 36, false],
+  0x53: ["unknown", 0, 0, 24, false],
+  0x88: ["battery", 1, 1, 0, true],
+  0x98: ["battery", 1, 1, 20, false],
+};
+const PKT_HDR = 14, SUB_HDR = 5;
+const EEG_SCALE_ATHENA = 1450 / 16383;   // ≈ 0.0885 µV per LSB
+const ACC_SCALE = 0.0000610352;          // g per LSB
+
+function lsbBits(d, start, width) {
+  let v = 0;
+  for (let b = 0; b < width; b++) {
+    const a = start + b;
+    if ((d[a >> 3] >> (a & 7)) & 1) v |= 1 << b;
+  }
+  return v;
+}
+
+// Yields {tag, payload} blocks from one BLE notification.
+function athenaBlocks(data) {
+  const out = [];
+  let off = 0;
+  while (off + PKT_HDR <= data.length) {
+    const len = data[off];
+    if (len < PKT_HDR || off + len > data.length) break;
+    const pkt = data.subarray(off, off + len);
+    off += len;
+    const payload = pkt.subarray(PKT_HDR);
+    const primary = pkt[9];
+    let o = 0;
+    const cfg = ATHENA[primary];
+    if (cfg) {
+      const n = cfg[4] ? payload.length : cfg[3];
+      if (n <= payload.length) { out.push({ tag: primary, payload: payload.subarray(0, n) }); o = n; }
+      else o = payload.length;
+    } else o = payload.length;
+    while (o + SUB_HDR <= payload.length) {
+      const tag = payload[o];
+      const c = ATHENA[tag];
+      if (!c) break;
+      const rem = payload.length - o - SUB_HDR;
+      const n = c[4] ? rem : c[3];
+      if (n <= 0 || n > rem) break;
+      out.push({ tag, payload: payload.subarray(o + SUB_HDR, o + SUB_HDR + n) });
+      o += SUB_HDR + n;
+    }
+  }
+  return out;
+}
+
+function decodeAthenaEEG(p, nCh, nS) {
+  const samples = [];
+  for (let s = 0; s < nS; s++) {
+    const row = [];
+    for (let c = 0; c < nCh; c++) row.push((lsbBits(p, (s * nCh + c) * 14, 14) - 8192) * EEG_SCALE_ATHENA);
+    samples.push(row);
+  }
+  return samples;
+}
+
+function decodeAthenaIMU(p) {
+  const dv = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  const acc = [];
+  for (let s = 0; s < 3; s++) {
+    const b = s * 12;
+    acc.push([dv.getInt16(b, true) * ACC_SCALE, dv.getInt16(b + 2, true) * ACC_SCALE, dv.getInt16(b + 4, true) * ACC_SCALE]);
+  }
+  return acc;
+}
+
+function decodeAthenaBattery(p) {
+  if (p.length < 2) return null;
+  const raw = p[0] | (p[1] << 8);
+  let pct = raw / 256;            // OpenMuse scale
+  if (pct > 100) pct = raw / 512; // muse-lsl scale (firmware-dependent)
+  return pct <= 100 ? pct : null;
+}
+
+/* ---------- Classic decoding ---------- */
+function msbBits(d, start, width) {
+  let v = 0;
+  for (let b = 0; b < width; b++) {
+    const a = start + b;
+    v = (v << 1) | ((d[a >> 3] >> (7 - (a & 7))) & 1);
+  }
+  return v;
+}
+function decodeClassicEEG(d) {   // 2-byte index + 12 samples × 12 bits, big-endian
+  const out = [];
+  for (let i = 0; i < 12; i++) out.push(0.48828125 * (msbBits(d, 16 + i * 12, 12) - 2048));
+  return out;
+}
+function decodeClassicAcc(d) {
+  const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const acc = [];
+  for (let s = 0; s < 3; s++) {
+    const b = 2 + s * 6;
+    acc.push([dv.getInt16(b) * ACC_SCALE, dv.getInt16(b + 2) * ACC_SCALE, dv.getInt16(b + 4) * ACC_SCALE]);
+  }
+  return acc;
+}
+
+/* ---------- Filters ---------- */
+class Biquad {
+  constructor(b0, b1, b2, a1, a2) { Object.assign(this, { b0, b1, b2, a1, a2, x1: 0, x2: 0, y1: 0, y2: 0 }); }
+  step(x) {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = y;
+    return y;
+  }
+  static notch(f0, fs, q = 25) {
+    const w = 2 * Math.PI * f0 / fs, al = Math.sin(w) / (2 * q), a0 = 1 + al;
+    return new Biquad(1 / a0, -2 * Math.cos(w) / a0, 1 / a0, -2 * Math.cos(w) / a0, (1 - al) / a0);
+  }
+  static highpass(f0, fs, q = 0.7071) {
+    const w = 2 * Math.PI * f0 / fs, al = Math.sin(w) / (2 * q), c = Math.cos(w), a0 = 1 + al;
+    return new Biquad((1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0);
+  }
+}
+
+/* ---------- State ---------- */
+const BUF = FS * 6;
+const eeg = EEG_NAMES.map(() => ({ buf: new Float32Array(BUF), pos: 0, count: 0, hp: null, notch: null, rail: 0 }));
+let mains = 60;
+function resetFilters() {
+  for (const ch of eeg) { ch.hp = Biquad.highpass(1, FS); ch.notch = Biquad.notch(mains, FS); }
+}
+resetFilters();
+
+const state = {
+  device: null, server: null, control: null, protocol: null,
+  battery: null, acc: [0, 0, 1], packets: 0, eegSamples: 0, lastRateT: performance.now(), lastRateN: 0,
+  tagCounts: {}, keepAlive: null, gotData: false, fallbackTimer: null,
+};
+
+function pushEEG(chIndex, uv) {
+  const ch = eeg[chIndex];
+  // Off-head electrodes saturate near the ends of the ADC range.
+  ch.rail = ch.rail * 0.996 + (Math.abs(uv) > 700 ? 0.004 : 0);
+  const y = ch.notch.step(ch.hp.step(uv));
+  ch.buf[ch.pos] = y;
+  ch.pos = (ch.pos + 1) % BUF;
+  ch.count++;
+}
+function lastN(chIndex, n) {
+  const ch = eeg[chIndex], out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = ch.buf[(ch.pos - n + i + BUF * 2) % BUF];
+  return out;
+}
+
+/* ---------- UI helpers ---------- */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  logEl.textContent += `[${t}] ${msg}\n`;
+  if (logEl.textContent.length > 20000) logEl.textContent = logEl.textContent.slice(-15000);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function notice(html) { const n = $("notice"); n.innerHTML = html; n.classList.toggle("show", !!html); }
+
+const qualityEl = $("quality");
+EEG_NAMES.forEach((n, i) => {
+  qualityEl.insertAdjacentHTML("beforeend",
+    `<span class="q"><span class="dot" id="qd${i}"></span>${n} <span class="muted" id="qt${i}">—</span></span>`);
+});
+const BANDS = [["Delta", 1, 4], ["Theta", 4, 8], ["Alpha", 8, 13], ["Beta", 13, 30], ["Gamma", 30, 44]];
+const bandColors = ["#6f7fb8", "#7aa7e8", "#7cc4a4", "#d9a35f", "#c58bd6"];
+BANDS.forEach(([n], i) => {
+  $("bands").insertAdjacentHTML("beforeend",
+    `<div class="band"><div class="val" id="bv${i}">—</div><div class="bar" id="bb${i}" style="background:${bandColors[i]}"></div><div class="lbl">${n}</div></div>`);
+});
+
+/* ---------- Bluetooth ---------- */
+function encodeCmd(s) {
+  const bytes = [s.length + 1];
+  for (const ch of s) bytes.push(ch.charCodeAt(0));
+  bytes.push(10);
+  return new Uint8Array(bytes);
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function send(cmd) {
+  if (!state.control) return;
+  const data = encodeCmd(cmd);
+  try {
+    if (state.control.writeValueWithoutResponse) await state.control.writeValueWithoutResponse(data);
+    else await state.control.writeValue(data);
+    log(`→ ${cmd}`);
+  } catch (e) { log(`→ ${cmd} failed: ${e.message}`); }
+}
+
+let ctrlBuf = "";
+function onControl(ev) {
+  const d = new Uint8Array(ev.target.value.buffer);
+  const n = Math.min(d[0], d.length - 1);
+  ctrlBuf += String.fromCharCode(...d.subarray(1, 1 + n));
+  // Replies arrive as JSON fragments; print complete objects.
+  let end;
+  while ((end = ctrlBuf.indexOf("}")) >= 0) {
+    const msg = ctrlBuf.slice(0, end + 1).trim();
+    ctrlBuf = ctrlBuf.slice(end + 1);
+    if (msg) log(`← ${msg}`);
+  }
+}
+
+async function tryChar(service, uuid) {
+  try { return await service.getCharacteristic(uuid); } catch { return null; }
+}
+
+async function connect() {
+  notice("");
+  if (!navigator.bluetooth) {
+    notice("This browser can't use Bluetooth from this page. Open it in <b>Chrome on Android</b> (or desktop Chrome/Edge), from an https address. Inside some viewers Bluetooth is blocked even in Chrome.");
+    return;
+  }
+  try {
+    state.device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "Muse" }],
+      optionalServices: [SERVICE],
+    });
+  } catch (e) {
+    if (e.name === "SecurityError") notice("Bluetooth is blocked in this frame. Open the page directly in Chrome (its own tab, https) and try again.");
+    else if (e.name !== "NotFoundError") notice(`Couldn't pick a device: ${e.message}`);
+    log(`requestDevice: ${e.name}: ${e.message}`);
+    return;
+  }
+  state.device.addEventListener("gattserverdisconnected", onDisconnected);
+  log(`Selected ${state.device.name}`);
+  $("connect").disabled = true;
+  try {
+    state.server = await state.device.gatt.connect();
+    const svc = await state.server.getPrimaryService(SERVICE);
+    state.control = await svc.getCharacteristic(CH.control);
+    await state.control.startNotifications();
+    state.control.addEventListener("characteristicvaluechanged", onControl);
+
+    const a1 = await tryChar(svc, CH.athena1);
+    if (a1) await startAthena(svc, a1);
+    else await startClassic(svc);
+    $("disconnect").disabled = false;
+  } catch (e) {
+    log(`Connect error: ${e.message}`);
+    notice(`Connection failed: ${e.message}. Is the Muse app still connected? Close it and retry.`);
+    $("connect").disabled = false;
+  }
+}
+
+async function startAthena(svc, a1) {
+  setProtocol("Athena");
+  log("Found 273e0013: Athena protocol");
+  a1.addEventListener("characteristicvaluechanged", onAthenaData);
+  await a1.startNotifications();
+  const a2 = await tryChar(svc, CH.athena2);
+  if (a2) { a2.addEventListener("characteristicvaluechanged", onAthenaData); await a2.startNotifications(); }
+  const preset = $("preset").value;
+  for (const c of ["v6", "s", "h", preset, "s"]) { await send(c); await sleep(200); }
+  await send("dc001"); await sleep(50);
+  await send("dc001"); await sleep(100);
+  await send("L1"); await sleep(300);
+  await send("s");
+  // Transitional firmware may refuse the Athena start: fall back to Classic.
+  state.fallbackTimer = setTimeout(async () => {
+    if (!state.gotData) {
+      log("No Athena data after 5 s: trying Classic start");
+      await startClassic(svc, true);
+    }
+  }, 5000);
+}
+
+async function startClassic(svc, fromFallback = false) {
+  setProtocol(fromFallback ? "Classic (fallback)" : "Classic");
+  const map = [[CH.tp9, 0], [CH.af7, 1], [CH.af8, 2], [CH.tp10, 3]];
+  let found = 0;
+  for (const [uuid, idx] of map) {
+    const c = await tryChar(svc, uuid);
+    if (!c) continue;
+    found++;
+    c.addEventListener("characteristicvaluechanged", ev => {
+      const d = new Uint8Array(ev.target.value.buffer);
+      if (d.length < 20) return;
+      state.gotData = true; state.packets++;
+      for (const v of decodeClassicEEG(d)) pushEEG(idx, v);
+      if (idx === 0) state.eegSamples += 12;
+    });
+    await c.startNotifications();
+  }
+  const acc = await tryChar(svc, CH.acc);
+  if (acc) {
+    acc.addEventListener("characteristicvaluechanged", ev => {
+      const a = decodeClassicAcc(new Uint8Array(ev.target.value.buffer));
+      state.acc = a[a.length - 1];
+    });
+    await acc.startNotifications();
+  }
+  const tel = await tryChar(svc, CH.telemetry);
+  if (tel) {
+    tel.addEventListener("characteristicvaluechanged", ev => {
+      const dv = new DataView(ev.target.value.buffer);
+      state.battery = dv.getUint16(2) / 512;
+    });
+    await tel.startNotifications();
+  }
+  if (!found) { notice("No EEG characteristics found. The protocol log may show why."); return; }
+  for (const c of ["h", "s", "p21"]) { await send(c); await sleep(200); }
+  await send("d");
+  clearInterval(state.keepAlive);
+  state.keepAlive = setInterval(() => send("k"), 10000);
+}
+
+function onAthenaData(ev) { feedAthena(new Uint8Array(ev.target.value.buffer.slice(0))); }
+function feedAthena(d) {
+  state.gotData = true;
+  state.packets++;
+  for (const { tag, payload } of athenaBlocks(d)) {
+    state.tagCounts[tag] = (state.tagCounts[tag] || 0) + 1;
+    const cfg = ATHENA[tag];
+    if (cfg[0] === "eeg") {
+      for (const row of decodeAthenaEEG(payload, cfg[1], cfg[2])) {
+        for (let c = 0; c < 4; c++) pushEEG(c, row[c]);
+        state.eegSamples++;
+      }
+    } else if (cfg[0] === "imu") {
+      const a = decodeAthenaIMU(payload);
+      state.acc = a[a.length - 1];
+    } else if (cfg[0] === "battery") {
+      const b = decodeAthenaBattery(payload);
+      if (b != null) state.battery = b;
+    }
+  }
+}
+
+function setProtocol(p) { state.protocol = p; $("proto").textContent = p; }
+
+function onDisconnected() {
+  log("Disconnected");
+  clearInterval(state.keepAlive); clearTimeout(state.fallbackTimer);
+  state.control = null; state.gotData = false;
+  $("connect").disabled = false; $("disconnect").disabled = true;
+  setProtocol("—");
+}
+
+async function disconnect() {
+  try { await send("h"); } catch {}
+  if (state.device?.gatt?.connected) state.device.gatt.disconnect();
+}
+
+$("connect").onclick = connect;
+$("disconnect").onclick = disconnect;
+$("mains").onchange = e => { mains = +e.target.value; resetFilters(); };
+
+/* ---------- Spectrum ---------- */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = a + len / 2;
+        const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+const N = 512;
+const hann = Float32Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)));
+let bandEMA = BANDS.map(() => 0);
+
+function channelQuality(i) {
+  if (eeg[i].count < FS) return { ok: false, label: "waiting", color: "#444", sd: 0 };
+  if (eeg[i].rail > 0.15) return { ok: false, label: "no contact", color: "#555", sd: NaN };
+  const x = lastN(i, FS);
+  let m = 0; for (const v of x) m += v; m /= x.length;
+  let s = 0; for (const v of x) s += (v - m) ** 2;
+  const sd = Math.sqrt(s / x.length);
+  if (sd < 0.5) return { ok: false, label: "flat", color: "#555", sd };
+  if (sd > 120) return { ok: false, label: "noisy", color: "var(--bad)", sd };
+  if (sd > 50) return { ok: true, label: "fair", color: "var(--warn)", sd };
+  return { ok: true, label: "good", color: "var(--accent)", sd };
+}
+
+function updateAnalysis() {
+  const q = EEG_NAMES.map((_, i) => channelQuality(i));
+  q.forEach((r, i) => {
+    $("qd" + i).style.background = r.color;
+    $("qt" + i).textContent = r.label === "waiting" ? "—" : isNaN(r.sd) ? r.label : `${r.label} · ${r.sd.toFixed(0)} µV`;
+  });
+  if (eeg[0].count < N) return;
+  let use = q.map((r, i) => r.ok ? i : -1).filter(i => i >= 0);
+  if (!use.length) use = [0, 1, 2, 3];
+  const pw = BANDS.map(() => 0);
+  for (const c of use) {
+    const x = lastN(c, N);
+    const re = new Float32Array(N), im = new Float32Array(N);
+    for (let i = 0; i < N; i++) re[i] = x[i] * hann[i];
+    fft(re, im);
+    BANDS.forEach(([, lo, hi], b) => {
+      for (let k = Math.ceil(lo * N / FS); k < Math.ceil(hi * N / FS); k++) pw[b] += re[k] * re[k] + im[k] * im[k];
+    });
+  }
+  const total = pw.reduce((a, b) => a + b, 0) || 1;
+  bandEMA = bandEMA.map((v, b) => v * 0.8 + 0.2 * (pw[b] / total));
+  const max = Math.max(...bandEMA, 0.01);
+  bandEMA.forEach((v, b) => {
+    $("bb" + b).style.height = `${Math.max(2, (v / max) * 100)}%`;
+    $("bv" + b).textContent = `${Math.round(v * 100)}%`;
+  });
+  const alpha = bandEMA[2];
+  $("alphaBig").textContent = `${Math.round(alpha * 100)}%`;
+  $("alphaFill").style.width = `${Math.min(100, alpha * 250)}%`;
+}
+
+/* ---------- Drawing ---------- */
+function fitCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, r = c.getBoundingClientRect();
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: r.width, h: r.height };
+}
+
+function drawEEG() {
+  const { ctx, w, h } = fitCanvas($("eeg"));
+  ctx.clearRect(0, 0, w, h);
+  const n = FS * 5, lane = h / 4, scale = lane / 2 / 75; // ±75 µV per lane
+  ctx.font = "11px system-ui"; ctx.textBaseline = "top";
+  for (let c = 0; c < 4; c++) {
+    const mid = lane * c + lane / 2;
+    ctx.strokeStyle = "#232834"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
+    ctx.fillStyle = "#8b93a3"; ctx.fillText(EEG_NAMES[c], 4, lane * c + 3);
+    if (eeg[c].count < 2) continue;
+    const x = lastN(c, n);
+    ctx.strokeStyle = COLORS[c]; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    const step = Math.max(1, Math.floor(n / w));
+    for (let i = 0; i < n; i += step) {
+      const px = (i / (n - 1)) * w;
+      const py = Math.max(lane * c, Math.min(lane * (c + 1), mid - x[i] * scale));
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawTilt() {
+  const { ctx, w, h } = fitCanvas($("tilt"));
+  ctx.clearRect(0, 0, w, h);
+  const [ax, ay, az] = state.acc;
+  const pitch = Math.atan2(ax, Math.hypot(ay, az)) * 180 / Math.PI;
+  const roll = Math.atan2(ay, az) * 180 / Math.PI;
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 10;
+  ctx.strokeStyle = "#2b313d"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+  const px = cx + Math.max(-1, Math.min(1, roll / 45)) * R, py = cy + Math.max(-1, Math.min(1, pitch / 45)) * R;
+  ctx.fillStyle = "#7cc4a4"; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#8b93a3"; ctx.font = "11px system-ui"; ctx.textBaseline = "top";
+  ctx.fillText(`pitch ${pitch.toFixed(0)}°  roll ${roll.toFixed(0)}°`, 6, 4);
+}
+
+function updateStats() {
+  const now = performance.now(), dt = (now - state.lastRateT) / 1000;
+  if (dt >= 1) {
+    const r = (state.eegSamples - state.lastRateN) / dt;
+    $("rate").textContent = state.gotData ? `${r.toFixed(0)} Hz` : "—";
+    state.lastRateN = state.eegSamples; state.lastRateT = now;
+  }
+  $("batt").textContent = state.battery == null ? "—" : `${Math.round(state.battery)}%`;
+  const tags = Object.entries(state.tagCounts).map(([t, n]) => `0x${(+t).toString(16)}:${n}`).join("  ");
+  $("stats").textContent = state.packets
+    ? `${state.packets} notifications · ${state.eegSamples} EEG samples${tags ? "\nTags " + tags : ""}`
+    : "No data yet.";
+}
+
+let lastAnalysis = 0;
+function frame(t) {
+  drawEEG(); drawTilt();
+  if (t - lastAnalysis > 250) { updateAnalysis(); updateStats(); lastAnalysis = t; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if (!navigator.bluetooth) {
+  notice("Bluetooth isn't available here. Open this page in <b>Chrome on Android</b> or desktop Chrome/Edge, from an https address.");
+}
+// Expose decoders for testing.
+window.MuseLab = { feedAthena, athenaBlocks, decodeAthenaEEG, decodeAthenaIMU, decodeAthenaBattery, decodeClassicEEG };
+</script>
+</body>
+</html>
